@@ -1,0 +1,188 @@
+// ESP32 + 1.44" TFT V1.0
+  
+// New background colour
+#define TFT_BROWN 0x38E0
+
+// Pause in milliseconds between screens, change to 0 to time font rendering
+#define WAIT 500
+
+#include <TFT_eSPI.h> // Graphics and font library for ST7735 driver chip
+#include <SPI.h>
+#include <MPU9250_asukiaaa.h>
+
+#define SDA_PIN 19
+#define SCL_PIN 18
+
+MPU9250 mySensor;
+
+TFT_eSPI tft = TFT_eSPI();  // Invoke library, pins defined in User_Setup.h
+/*
+#define ST7735_DRIVER
+
+#define TFT_WIDTH  128
+#define TFT_HEIGHT 128
+
+#define ST7735_GREENTAB2
+
+#define TFT_MISO 19
+#define TFT_MOSI 23
+#define TFT_SCLK  5
+#define TFT_CS   16  // Chip select control pin
+#define TFT_DC   17  // Data Command control pin
+#define TFT_RST   9  // Reset pin (could connect to RST pin)
+
+#define SPI_FREQUENCY  27000000 // Actually sets it to 26.67MHz = 80/3
+ */
+
+uint8_t sensorId;
+float aX, aY, aZ, aSqrt, gX, gY, gZ, mDirection, mX, mY, mZ;
+
+unsigned long targetTime = 0; // Used for testing draw times
+float r, x1, ya, z1, x2, y2, z2, x3, y3, z3;               //
+int f[8][2], x, y;                                         // Draw box, x, y center
+int c[8][3] = {                                            // Cube
+ {-20,-20, 20},{20,-20, 20},{20,20, 20},{-20,20, 20},
+ {-20,-20,-20},{20,-20,-20},{20,20,-20},{-20,20,-20} };
+
+//GPIOs Buttons
+byte interruptPin_A = 39;
+byte interruptPin_B = 34;
+byte interruptPin_C = 35;
+
+//esp32 kennt keine tone() Funktion.
+//Muss deshalb nachgebaut werden.
+int freq = 2000;
+int channel = 0;
+int resolution = 8;
+byte speakerPin = 25;
+
+//Interrupbehandlung sicherstellen
+portMUX_TYPE buttonMUX = portMUX_INITIALIZER_UNLOCKED;
+byte Button = 0;
+int Hertz = 1000;
+
+void setup(void) {
+
+  Serial.begin(115200);
+  ledcSetup(channel, freq, resolution);
+  ledcAttachPin(speakerPin, channel);
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+  mySensor.setWire(&Wire);
+  mySensor.beginAccel();
+  mySensor.beginGyro();
+  mySensor.beginMag();
+
+  tft.init();
+  
+  x = tft.width() /2; x = x + 14;                          // x Center Calculate
+  y = tft.height()/2;                                      // y Center Calculate
+
+  pinMode(interruptPin_A, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(interruptPin_A), Button_A, CHANGE);
+  pinMode(interruptPin_B, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(interruptPin_B), Button_B, CHANGE);
+  pinMode(interruptPin_C, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(interruptPin_C), Button_C, CHANGE);
+
+  // Start device display with ID of sensor
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE ,TFT_BLACK); // Set pixel color; 1 on the monochrome screen
+  tft.setTextSize(2);
+  tft.setCursor(2,0); 
+  tft.print("MPU9250 ");
+  sensorId = mySensor.readId();
+  tft.print(sensorId);
+  delay(1000);
+
+  // Set up for data display
+  tft.setTextSize(1); // Set text size to normal, 2 is twice normal etc.
+  tft.fillScreen(TFT_BLACK);   // clears the screen and buffer
+}
+ 
+void loop(){
+  mySensor.accelUpdate();
+  aX = mySensor.accelX();
+  aY = mySensor.accelY();
+  aZ = mySensor.accelZ();
+  
+/*
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_GREEN ,TFT_BLACK);
+  tft.setTextSize(1);
+  tft.setCursor(0, 0); tft.print("MPU9250");
+  tft.setCursor(0, 32); tft.print(" x   y   z  ");
+
+  tft.setCursor(0,  48); tft.print((int)(aX*100));
+  tft.setCursor(32, 48); tft.print((int)(aY*100));
+  tft.setCursor(64, 48); tft.print((int)(aZ*100));
+*/
+ 
+ //for (int a = 0; a <= 360; a = a + 2 ) {                   // 0 to 360 degree
+
+   int a = aX * 360;
+  
+    for (int i = 0; i < 8; i++) {                           //
+
+    tft.setTextWrap(true);
+     
+    r  = a * 0.0174532;                                    // 1 degree
+    x1 = c[i][2] * sin(r) + c[i][0] * cos(r);              // rotate Y
+    ya = c[i][1];                                          //
+    z1 = c[i][2] * cos(r) - c[i][0] * sin(r);              //
+    x2 = x1;                                               //
+    y2 = ya * cos(r) - z1 * sin(r);                        // rotate X
+    z2 = ya * sin(r) + z1 * cos(r);                        //
+    x3 = x2 * cos(r) - y2 * sin(r);                        // rotate Z
+    y3 = x2 * sin(r) + y2 * cos(r);                        //
+    z3 = z2; x3 = x3 + x ; y3 = y3 + y ;                   //
+    f[i][0] = x3; f[i][1] = y3; f[i][2] = z3;              // store new values
+   }
+   tft.fillScreen(TFT_BLACK);
+   tft.drawLine(f[0][0],f[0][1],f[1][0],f[1][1],TFT_WHITE);
+   tft.drawLine(f[1][0],f[1][1],f[2][0],f[2][1],TFT_WHITE);
+   tft.drawLine(f[2][0],f[2][1],f[3][0],f[3][1],TFT_WHITE);
+   tft.drawLine(f[3][0],f[3][1],f[0][0],f[0][1],TFT_WHITE);
+   tft.drawLine(f[4][0],f[4][1],f[5][0],f[5][1],TFT_WHITE);
+   tft.drawLine(f[5][0],f[5][1],f[6][0],f[6][1],TFT_WHITE);
+   tft.drawLine(f[6][0],f[6][1],f[7][0],f[7][1],TFT_WHITE);
+   tft.drawLine(f[7][0],f[7][1],f[4][0],f[4][1],TFT_WHITE);
+   tft.drawLine(f[0][0],f[0][1],f[4][0],f[4][1],TFT_WHITE);
+   tft.drawLine(f[1][0],f[1][1],f[5][0],f[5][1],TFT_WHITE);
+   tft.drawLine(f[2][0],f[2][1],f[6][0],f[6][1],TFT_WHITE);
+   tft.drawLine(f[3][0],f[3][1],f[7][0],f[7][1],TFT_WHITE);
+   tft.drawLine(f[1][0],f[1][1],f[3][0],f[3][1],TFT_WHITE);// cross
+   tft.drawLine(f[0][0],f[0][1],f[2][0],f[2][1],TFT_WHITE);// cross
+
+   if (Button > 0) {
+     //tft.print("pressed B \r\n");
+    Serial.printf("pressed Button \r\n");
+    portENTER_CRITICAL(&buttonMUX);
+    ledcWriteTone(channel, Hertz);
+    Button = 0;
+    portEXIT_CRITICAL(&buttonMUX);
+    delay(300);
+    ledcWriteTone(channel, 0);
+   }
+ }
+
+void IRAM_ATTR Button_A() {
+  portENTER_CRITICAL_ISR(&buttonMUX);
+  Button = 1;
+  Hertz = 1000;
+  portEXIT_CRITICAL_ISR(&buttonMUX);
+}
+
+void IRAM_ATTR Button_B() {
+  portENTER_CRITICAL_ISR(&buttonMUX);
+  Button = 2;
+  Hertz = 2000;
+  portEXIT_CRITICAL_ISR(&buttonMUX);
+}
+
+void IRAM_ATTR Button_C() {
+  portENTER_CRITICAL_ISR(&buttonMUX);
+  Button = 3;
+  Hertz = 4000;
+  portEXIT_CRITICAL_ISR(&buttonMUX);
+}
